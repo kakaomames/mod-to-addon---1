@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON ↔ .lang 変換ツール</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f4f7f9;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            padding: 30px;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        h1 {
+            color: #2c3e50;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+            margin-bottom: 25px;
+        }
+        .drop-zone {
+            border: 2px dashed #bdc3c7;
+            border-radius: 8px;
+            padding: 40px 20px;
+            margin-bottom: 20px;
+            transition: background-color 0.3s, border-color 0.3s;
+            cursor: pointer;
+        }
+        .drop-zone.active {
+            background-color: #ecf0f1;
+            border-color: #3498db;
+        }
+        .drop-zone p {
+            font-size: 1.2em;
+            color: #95a5a6;
+            margin: 0;
+        }
+        .drop-zone.active p {
+            color: #2980b9;
+        }
+        #fileInput {
+            display: none;
+        }
+        .download-button {
+            display: none; /* 初期状態では非表示 */
+            width: 100%;
+            padding: 15px;
+            font-size: 1.1em;
+            color: #fff;
+            background-color: #2ecc71;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-top: 10px;
+        }
+        .download-button:hover {
+            background-color: #27ae60;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>JSON ↔ .lang 変換ツール</h1>
+        <p>変換したい**JSON**または**.lang**ファイルを、下のエリアにドラッグ＆ドロップするか、クリックして選択してください。</p>
+
+        <div id="dropZone" class="drop-zone">
+            <p>ここにファイルをドロップ</p>
+            <input type="file" id="fileInput" accept=".json, .lang">
+        </div>
+
+        <button id="downloadButton" class="download-button">
+            ダウンロード
+        </button>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const downloadButton = document.getElementById('downloadButton');
+        let convertedContent = "";
+        let outputFileName = "";
+
+        // ドラッグ＆ドロップのイベントリスナー
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('active');
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('active');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('active');
+            const files = e.dataTransfer.files;
+            handleFile(files[0]);
+        });
+
+        // ファイル入力のイベントリスナー
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            handleFile(files[0]);
+        });
+
+        /**
+         * 選択されたファイルを処理し、変換を実行
+         * @param {File} file - ユーザーが選択したファイル
+         */
+        function handleFile(file) {
+            if (!file) return;
+
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                const fileContent = e.target.result;
+                let conversionSuccessful = false;
+                
+                try {
+                    // ファイルの種類を判別して変換を実行
+                    if (file.name.endsWith('.json')) {
+                        const data = JSON.parse(fileContent);
+                        convertedContent = convertJsonToLang(data);
+                        outputFileName = file.name.replace('.json', '.lang');
+                        conversionSuccessful = true;
+                    } else if (file.name.endsWith('.lang')) {
+                        const data = convertLangToJson(fileContent);
+                        convertedContent = JSON.stringify(data, null, 4); // 見やすいように整形
+                        outputFileName = file.name.replace('.lang', '.json');
+                        conversionSuccessful = true;
+                    } else {
+                        alert("❌ サポートされていないファイル形式です。JSONまたは.langファイルを選択してください。");
+                    }
+                } catch (error) {
+                    alert(`❌ 変換エラー: ファイルの形式が正しくありません。\n詳細: ${error.message}`);
+                    console.error("変換エラー:", error);
+                }
+
+                if (conversionSuccessful) {
+                    downloadButton.style.display = 'block';
+                    downloadButton.textContent = `変換完了！'${outputFileName}'をダウンロード`;
+                    console.log("✅ 変換が完了しました！ダウンロードボタンが利用可能です。");
+                } else {
+                    downloadButton.style.display = 'none';
+                }
+            };
+            
+            reader.readAsText(file);
+        }
+
+        /**
+         * JSONオブジェクトを.lang形式の文字列に変換
+         * @param {object} data - 変換元のJSONオブジェクト
+         * @returns {string} .lang形式の文字列
+         */
+        function convertJsonToLang(data) {
+            let langText = '';
+            for (const key in data) {
+                if (Object.prototype.hasOwnProperty.call(data, key)) {
+                    const value = String(data[key]).replace(/\\n/g, '\n');
+                    langText += `${key}=${value}\n`;
+                }
+            }
+            return langText;
+        }
+
+        /**
+         * .lang形式の文字列をJSONオブジェクトに変換
+         * @param {string} text - 変換元の.lang形式の文字列
+         * @returns {object} JSONオブジェクト
+         */
+        function convertLangToJson(text) {
+            const lines = text.split('\n');
+            const data = {};
+            for (const line of lines) {
+                // コメント行や空行を無視
+                if (line.trim() === '' || line.trim().startsWith('#')) {
+                    continue;
+                }
+                const parts = line.split('=');
+                if (parts.length >= 2) {
+                    const key = parts[0].trim();
+                    // "="以降のすべてを値として結合
+                    const value = parts.slice(1).join('=').trim();
+                    data[key] = value;
+                }
+            }
+            return data;
+        }
+
+        // ダウンロードボタンのクリックイベント
+        downloadButton.addEventListener('click', () => {
+            const blob = new Blob([convertedContent], { type: 'text/plain;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = outputFileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+    </script>
+
+</body>
+</html>
