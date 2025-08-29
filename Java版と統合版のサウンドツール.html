@@ -143,11 +143,11 @@
 
     <div class="container">
         <h1>Minecraft サウンド変換ツール</h1>
-        <p id="mainInstruction">変換したい**sounds**フォルダを下のエリアにドラッグ＆ドロップするか、クリックして選択してください。</p>
+        <p id="mainInstruction">変換したい**sounds**フォルダ、または**oggファイル**と**sound.json**を下のエリアにドラッグ＆ドロップしてください。</p>
 
         <div id="dropZone" class="drop-zone">
             <p>ここにフォルダまたはファイルをドロップ</p>
-            <input type="file" id="fileInput">
+            <input type="file" id="fileInput" webkitdirectory directory multiple>
         </div>
 
         <div id="converter" style="display: none;">
@@ -159,6 +159,15 @@
             </div>
             <button id="downloadButton" class="download-button" style="display: none;">変換結果をダウンロード</button>
         </div>
+
+        <div id="choiceArea" style="display: none;">
+            <p>アップロードされたファイルはJava版ですか？統合版ですか？</p>
+            <div class="button-group">
+                <button class="button java-to-bedrock" onclick="handleUserChoice('java')">Java版</button>
+                <button class="button bedrock-to-java" onclick="handleUserChoice('bedrock')">統合版</button>
+            </div>
+        </div>
+
     </div>
 
     <script>
@@ -171,6 +180,7 @@
         const bedrockToJavaBtn = document.getElementById('bedrockToJavaBtn');
         const downloadButton = document.getElementById('downloadButton');
         const conversionTypeMessage = document.getElementById('conversionTypeMessage');
+        const choiceArea = document.getElementById('choiceArea');
         
         let allSoundFiles = [];
         let javaSoundJson = null;
@@ -209,52 +219,102 @@
             downloadButton.style.display = 'none';
             javaToBedrockBtn.style.display = 'none';
             bedrockToJavaBtn.style.display = 'none';
+            choiceArea.style.display = 'none';
             
+            let hasWebkitDirectory = false;
+            let oggFilesFound = false;
+            let jsonFileFound = false;
             let soundsFolderFound = false;
 
             for (const file of files) {
                 if (file.webkitRelativePath) {
-                    // soundsフォルダの中のファイルか確認
+                    hasWebkitDirectory = true;
                     if (file.webkitRelativePath.includes('/sounds/')) {
                         if (file.name.endsWith('.ogg')) {
                             allSoundFiles.push(file);
+                            oggFilesFound = true;
                             soundsFolderFound = true;
+                        } else if (file.webkitRelativePath.endsWith('/sound.json')) {
+                            readSoundJson(file);
+                            jsonFileFound = true;
                         }
+                    } else if (file.webkitRelativePath.includes('sounds/') && file.webkitRelativePath.endsWith('/sound.json')) {
+                        readSoundJson(file);
+                        jsonFileFound = true;
+                    }
+                } else {
+                    // フォルダではなく、個々のファイルをアップロードした場合
+                    if (file.name.endsWith('.ogg')) {
+                        allSoundFiles.push(file);
+                        oggFilesFound = true;
+                    } else if (file.name === 'sound.json') {
+                        readSoundJson(file);
+                        jsonFileFound = true;
                     }
                 }
             }
 
-            if (soundsFolderFound) {
-                displayFileList();
-                mainInstruction.textContent = "Java版に変換したい場合は、続いてsound.jsonファイルをドロップしてください。";
-                fileInput.removeAttribute('webkitdirectory');
-                fileInput.removeAttribute('directory');
-                fileInput.setAttribute('accept', '.json');
-            } else if (files[0] && files[0].name === 'sound.json') {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        javaSoundJson = JSON.parse(e.target.result);
-                        displayFileList();
-                    } catch (error) {
-                        alert("❌ sound.jsonの形式が正しくありません。\n" + error.message);
+            // 非同期処理を待つ
+            setTimeout(() => {
+                if (soundsFolderFound) {
+                    // soundsフォルダがドロップされた場合
+                    if (jsonFileFound) {
+                        displayFileList('java'); // sound.jsonがあればJava版と判断
+                    } else {
+                        // sound.jsonがない場合は、Java版の変換用にsound.jsonを要求
+                        mainInstruction.textContent = "Java版に変換したい場合は、続いてsound.jsonファイルをドロップしてください。";
+                        fileInput.removeAttribute('webkitdirectory');
+                        fileInput.removeAttribute('directory');
+                        fileInput.setAttribute('accept', '.json');
+                        displayFileList('bedrock'); // sound.jsonがなければ統合版と判断
                     }
-                };
-                reader.readAsText(files[0]);
-            } else {
-                 alert("❌ .oggファイルのあるsoundsフォルダまたはsound.jsonファイルが見つかりませんでした。");
-            }
+                } else if (oggFilesFound) {
+                    // oggファイル単体がドロップされた場合
+                    mainInstruction.textContent = "";
+                    choiceArea.style.display = 'block';
+                } else {
+                    alert("❌ .oggファイルが見つかりませんでした。");
+                }
+            }, 100);
+        }
+
+        function readSoundJson(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    javaSoundJson = JSON.parse(e.target.result);
+                    displayFileList('java');
+                } catch (error) {
+                    alert("❌ sound.jsonの形式が正しくありません。\n" + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // ユーザーの選択に応じてリストを表示
+        function handleUserChoice(type) {
+            choiceArea.style.display = 'none';
+            displayFileList(type);
         }
         
-        function displayFileList() {
-            if (javaSoundJson) {
-                 conversionTypeMessage.textContent = "Java版 → 統合版への変換と判別しました。";
+        function displayFileList(type) {
+            converter.style.display = 'block';
+            soundList.innerHTML = '';
+            
+            if (type === 'java') {
+                conversionTypeMessage.textContent = "Java版 → 統合版への変換と判別しました。";
                 javaToBedrockBtn.style.display = 'block';
                 bedrockToJavaBtn.style.display = 'none';
-
-                for (const key in javaSoundJson.sound_definitions) {
-                    const soundObj = javaSoundJson.sound_definitions[key];
-                    const soundPath = Array.isArray(soundObj.sounds) ? soundObj.sounds[0].name.replace('sounds/', '') : soundObj.sounds.replace('sounds/', '');
+                
+                const soundDefs = javaSoundJson.sound_definitions;
+                for (const key in soundDefs) {
+                    const soundObj = soundDefs[key];
+                    let soundPath = '';
+                    if (Array.isArray(soundObj.sounds)) {
+                        soundPath = soundObj.sounds[0].name.replace('sounds/', '');
+                    } else if (typeof soundObj.sounds === 'string') {
+                        soundPath = soundObj.sounds.replace('sounds/', '');
+                    }
                     
                     const li = document.createElement('li');
                     li.innerHTML = `
@@ -263,14 +323,13 @@
                     `;
                     soundList.appendChild(li);
                 }
-            } else if (allSoundFiles.length > 0) {
+            } else if (type === 'bedrock') {
                 conversionTypeMessage.textContent = "統合版 → Java版への変換と判別しました。";
                 javaToBedrockBtn.style.display = 'none';
                 bedrockToJavaBtn.style.display = 'block';
-                converter.style.display = 'block';
 
                 allSoundFiles.forEach(file => {
-                    const relativePath = file.webkitRelativePath.split('/').slice(1).join('/');
+                    const relativePath = file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(1).join('/') : file.name;
                     const soundName = relativePath.replace(/\.ogg$/, '');
 
                     const li = document.createElement('li');
@@ -280,11 +339,8 @@
                     `;
                     soundList.appendChild(li);
                 });
-            } else {
-                 alert("❌ 変換に必要なファイルが見つかりませんでした。");
             }
 
-            converter.style.display = 'block';
             downloadButton.style.display = 'none';
         }
 
