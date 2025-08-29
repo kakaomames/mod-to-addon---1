@@ -170,7 +170,7 @@
 
         <div id="dropZone" class="drop-zone">
             <p>ここにフォルダまたはファイルをドロップ</p>
-            <input type="file" id="fileInput" directory multiple>
+            <input type="file" id="fileInput" multiple>
         </div>
 
         <div id="progressContainer" class="progress-bar-container">
@@ -217,7 +217,6 @@
         let allSoundFiles = {};
         let javaSoundJson = null;
 
-        // 初期化とUI表示のリセット
         function resetUI() {
             allSoundFiles = {};
             javaSoundJson = null;
@@ -247,7 +246,8 @@
 
         dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
-            handleItems(e.dataTransfer.items);
+            const items = Array.from(e.dataTransfer.items).filter(item => item.kind === 'file');
+            handleItems(items);
         });
 
         dropZone.addEventListener('click', () => {
@@ -265,30 +265,12 @@
 
         async function handleItems(items) {
             const fileEntries = [];
-            const walkDirectory = async (directoryEntry, path = '') => {
-                const reader = directoryEntry.createReader();
-                const entries = await new Promise(resolve => reader.readEntries(resolve));
-                for (const entry of entries) {
-                    const newPath = path ? path + '/' + entry.name : entry.name;
-                    if (entry.isFile) {
-                        fileEntries.push({ entry, path: newPath });
-                    } else if (entry.isDirectory) {
-                        await walkDirectory(entry, newPath);
-                    }
-                }
-            };
-
             for (const item of items) {
                 const entry = item.webkitGetAsEntry();
                 if (entry) {
-                    if (entry.isFile) {
-                        fileEntries.push({ entry, path: entry.name });
-                    } else if (entry.isDirectory) {
-                        await walkDirectory(entry, entry.name);
-                    }
+                    fileEntries.push({ entry, path: entry.name });
                 }
             }
-            
             await processAndAddFiles(fileEntries);
         }
 
@@ -305,16 +287,16 @@
 
             progressBarContainer.style.display = 'block';
             let filesReadCount = 0;
-            let currentOggFound = false;
             let currentJsonFile = null;
 
             for (let i = 0; i < fileInfo.length; i++) {
                 const { entry, file, path } = fileInfo[i];
-                const currentFile = file || await new Promise(resolve => entry.file(resolve));
+                const currentFile = file || (entry && await new Promise(resolve => entry.file(resolve)));
                 
+                if (!currentFile) continue;
+
                 if (currentFile.name.endsWith('.ogg')) {
                     allSoundFiles[path] = currentFile;
-                    currentOggFound = true;
                 } else if (currentFile.name.toLowerCase() === 'sound.json') {
                     if (javaSoundJson) {
                          alert("⚠️ sound.jsonが既にアップロードされています。新しいファイルに上書きします。");
@@ -326,10 +308,10 @@
                 const progress = Math.min(100, Math.floor((filesReadCount / fileInfo.length) * 100));
                 progressBar.style.width = `${progress}%`;
                 progressBar.textContent = `${progress}%`;
-                await new Promise(resolve => setTimeout(resolve, 10)); // プログレスバーの動きを滑らかにする
+                await new Promise(resolve => setTimeout(resolve, 10)); // Make progress bar animation smoother
             }
 
-            await new Promise(resolve => setTimeout(resolve, 500)); // 100%になったことを見せるための遅延
+            await new Promise(resolve => setTimeout(resolve, 500)); // Delay to show 100%
 
             if (currentJsonFile) {
                 try {
@@ -347,7 +329,7 @@
             progressBarContainer.style.display = 'none';
 
             const oggFound = Object.keys(allSoundFiles).length > 0;
-            const jsonFound = javaSoundJson && Object.keys(javaSoundJson.sound_definitions).length > 0;
+            const jsonFound = javaSoundJson && javaSoundJson.sound_definitions && Object.keys(javaSoundJson.sound_definitions).length > 0;
 
             if (oggFound && jsonFound) {
                 displayFileList('java');
@@ -355,7 +337,7 @@
                 choiceArea.style.display = 'block';
             } else {
                  alert("❌ 読み込み可能な.oggファイルが見つかりませんでした。");
-                 resetUI(); // 変換可能なファイルがない場合はリセット
+                 resetUI();
             }
         }
 
