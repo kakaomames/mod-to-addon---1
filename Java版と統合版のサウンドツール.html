@@ -76,11 +76,6 @@
             word-break: break-all;
             color: #333;
         }
-        #soundList li .sound-name-label {
-             flex: 1;
-             text-align: right;
-             margin-right: 10px;
-        }
         #soundList li input {
             padding: 5px;
             border: 1px solid #ccc;
@@ -142,6 +137,24 @@
             font-weight: bold;
             margin-top: 10px;
         }
+        .progress-bar-container {
+            width: 100%;
+            background-color: #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 10px;
+            display: none;
+        }
+        .progress-bar {
+            height: 25px;
+            background-color: #2ecc71;
+            width: 0%;
+            transition: width 0.3s ease-in-out;
+            text-align: center;
+            line-height: 25px;
+            color: white;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -152,7 +165,11 @@
 
         <div id="dropZone" class="drop-zone">
             <p>ここにフォルダまたはファイルをドロップ</p>
-            <input type="file" id="fileInput" multiple>
+            <input type="file" id="fileInput" directory multiple>
+        </div>
+
+        <div id="progressContainer" class="progress-bar-container">
+            <div id="progressBar" class="progress-bar">0%</div>
         </div>
 
         <div id="converter" style="display: none;">
@@ -185,6 +202,8 @@
         const downloadButton = document.getElementById('downloadButton');
         const conversionTypeMessage = document.getElementById('conversionTypeMessage');
         const choiceArea = document.getElementById('choiceArea');
+        const progressBarContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
         
         let allSoundFiles = {};
         let javaSoundJson = null;
@@ -210,7 +229,7 @@
         });
 
         fileInput.addEventListener('change', (e) => {
-            handleFiles(e.target.files);
+            handleFilesFromInput(e.target.files);
         });
 
         function resetUI() {
@@ -222,91 +241,99 @@
             javaToBedrockBtn.style.display = 'none';
             bedrockToJavaBtn.style.display = 'none';
             choiceArea.style.display = 'none';
+            progressBarContainer.style.display = 'none';
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
             mainInstruction.textContent = "変換したい**sounds**フォルダ、または**複数のファイル**（oggとsound.json）を下のエリアにドラッグ＆ドロップしてください。";
         }
 
         async function handleItems(items) {
             resetUI();
             
-            const filePromises = [];
+            const fileEntries = [];
             const walkDirectory = async (directoryEntry, path = '') => {
-                return new Promise(resolve => {
-                    const reader = directoryEntry.createReader();
-                    reader.readEntries(async entries => {
-                        for (const entry of entries) {
-                            const newPath = path ? path + '/' + entry.name : entry.name;
-                            if (entry.isFile) {
-                                filePromises.push(new Promise(resolveFile => entry.file(file => resolveFile({ file, path: newPath }))));
-                            } else if (entry.isDirectory) {
-                                await walkDirectory(entry, newPath);
-                            }
-                        }
-                        resolve();
-                    });
-                });
+                const reader = directoryEntry.createReader();
+                const entries = await new Promise(resolve => reader.readEntries(resolve));
+                for (const entry of entries) {
+                    const newPath = path ? path + '/' + entry.name : entry.name;
+                    if (entry.isFile) {
+                        fileEntries.push({ entry, path: newPath });
+                    } else if (entry.isDirectory) {
+                        await walkDirectory(entry, newPath);
+                    }
+                }
             };
 
             for (const item of items) {
                 const entry = item.webkitGetAsEntry();
                 if (entry) {
                     if (entry.isFile) {
-                        filePromises.push(new Promise(resolve => entry.file(file => resolve({ file, path: entry.name }))));
+                        fileEntries.push({ entry, path: entry.name });
                     } else if (entry.isDirectory) {
                         await walkDirectory(entry, entry.name);
                     }
                 }
             }
-
-            const files = await Promise.all(filePromises);
-            handleAllFiles(files.map(f => f.file), files.map(f => f.path));
+            
+            await processFiles(fileEntries);
         }
 
-        function handleFiles(files) {
+        async function handleFilesFromInput(files) {
             resetUI();
-            const paths = Array.from(files).map(f => f.webkitRelativePath || f.name);
-            handleAllFiles(Array.from(files), paths);
+            const fileInfo = Array.from(files).map(f => ({ file: f, path: f.webkitRelativePath || f.name }));
+            await processFiles(fileInfo);
         }
-
-        async function handleAllFiles(files, paths) {
-            let oggFound = false;
-            let jsonFound = false;
-            let hasSoundsFolder = false;
-
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                const path = paths[i];
-                
-                if (path.includes('/sounds/') || path === 'sounds') {
-                     hasSoundsFolder = true;
-                }
-
-                if (file.name.endsWith('.ogg')) {
-                    allSoundFiles[path] = file;
-                    oggFound = true;
-                } else if (file.name === 'sound.json') {
-                    jsonFound = true;
-                    try {
-                        await readSoundJson(file);
-                    } catch (e) {
-                        console.error(e);
-                        return;
-                    }
-                }
-            }
-
-            if (!oggFound) {
-                alert("❌ .oggファイルが見つかりませんでした。");
+        
+        async function processFiles(fileInfo) {
+            if (fileInfo.length === 0) {
+                alert("❌ .oggファイルまたはsound.jsonファイルが見つかりませんでした。");
                 return;
             }
 
-            if (hasSoundsFolder && jsonFound) {
-                displayFileList('java');
-            } else if (hasSoundsFolder && !jsonFound) {
-                displayFileList('bedrock');
-            } else if (jsonFound) {
-                 displayFileList('java');
-            } else {
+            progressBarContainer.style.display = 'block';
+            let oggFound = false;
+            let jsonFile = null;
+            let filesReadCount = 0;
+
+            for (let i = 0; i < fileInfo.length; i++) {
+                const { entry, file, path } = fileInfo[i];
+                const currentFile = file || await new Promise(resolve => entry.file(resolve));
+                
+                if (currentFile.name.endsWith('.ogg')) {
+                    allSoundFiles[path] = currentFile;
+                    oggFound = true;
+                } else if (currentFile.name.toLowerCase() === 'sound.json') {
+                    jsonFile = currentFile;
+                }
+                
+                filesReadCount++;
+                const progress = Math.min(100, Math.floor((filesReadCount / fileInfo.length) * 100));
+                progressBar.style.width = `${progress}%`;
+                progressBar.textContent = `${progress}%`;
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 500)); // progress barが100%になるのを見せるための遅延
+
+            if (!oggFound && !jsonFile) {
+                alert("❌ .oggファイルまたはsound.jsonファイルが見つかりませんでした。");
+                progressBarContainer.style.display = 'none';
+                return;
+            } else if (jsonFile) {
+                try {
+                    await readSoundJson(jsonFile);
+                    if (Object.keys(javaSoundJson.sound_definitions).length > 0) {
+                        displayFileList('java');
+                    } else {
+                        alert("❌ sound.jsonにサウンドの定義が見つかりませんでした。");
+                        progressBarContainer.style.display = 'none';
+                    }
+                } catch (e) {
+                    progressBarContainer.style.display = 'none';
+                    return;
+                }
+            } else if (oggFound) {
                 choiceArea.style.display = 'block';
+                progressBarContainer.style.display = 'none';
             }
         }
 
@@ -316,9 +343,6 @@
                 reader.onload = (e) => {
                     try {
                         javaSoundJson = JSON.parse(e.target.result);
-                        if (!javaSoundJson.sound_definitions || Object.keys(javaSoundJson.sound_definitions).length === 0) {
-                             throw new Error("sound.jsonにサウンドの定義が見つかりませんでした。");
-                        }
                         resolve();
                     } catch (error) {
                         alert("❌ sound.jsonの形式が正しくありません。\n" + error.message);
