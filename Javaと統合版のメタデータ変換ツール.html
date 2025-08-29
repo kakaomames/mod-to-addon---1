@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MC Pack Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f4f7f9;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+            padding: 30px;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        h1 {
+            color: #2c3e50;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+            margin-bottom: 25px;
+        }
+        .drop-zone {
+            border: 2px dashed #bdc3c7;
+            border-radius: 8px;
+            padding: 40px 20px;
+            margin-bottom: 20px;
+            transition: background-color 0.3s, border-color 0.3s;
+            cursor: pointer;
+        }
+        .drop-zone.active {
+            background-color: #ecf0f1;
+            border-color: #3498db;
+        }
+        .drop-zone p {
+            font-size: 1.2em;
+            color: #95a5a6;
+            margin: 0;
+        }
+        .drop-zone.active p {
+            color: #2980b9;
+        }
+        #fileInput {
+            display: none;
+        }
+        .download-button {
+            display: none;
+            width: 100%;
+            padding: 15px;
+            font-size: 1.1em;
+            color: #fff;
+            background-color: #2ecc71;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-top: 10px;
+        }
+        .download-button:hover {
+            background-color: #27ae60;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        select {
+            width: 100%;
+            padding: 8px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>パックファイル変換ツール</h1>
+        <p>変換したい**pack.mcmeta**または**manifest.json**ファイルを、下のエリアにドラッグ＆ドロップするか、クリックして選択してください。</p>
+
+        <div class="form-group" id="packFormatGroup" style="display:none;">
+            <label for="packFormatSelect">Java版のpack_formatを選択:</label>
+            <select id="packFormatSelect">
+                <option value="4" selected>1.13-1.14</option>
+                <option value="5">1.15-1.16.1</option>
+                <option value="6">1.16.2-1.16.5</option>
+                <option value="7">1.17</option>
+                <option value="8">1.18-1.18.2</option>
+                <option value="9">1.19-1.19.2</option>
+                <option value="10">1.19.3</option>
+                <option value="12">1.19.4</option>
+                <option value="15">1.20-1.20.1</option>
+                <option value="18">1.20.2</option>
+                <option value="26">1.20.5-1.20.6</option>
+                <option value="32">1.21</option>
+            </select>
+        </div>
+
+        <div id="dropZone" class="drop-zone">
+            <p>ここにファイルをドロップ</p>
+            <input type="file" id="fileInput" accept=".mcmeta, .json">
+        </div>
+
+        <button id="downloadButton" class="download-button">
+            ダウンロード
+        </button>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const downloadButton = document.getElementById('downloadButton');
+        const packFormatGroup = document.getElementById('packFormatGroup');
+        const packFormatSelect = document.getElementById('packFormatSelect');
+        let convertedContent = "";
+        let outputFileName = "";
+
+        // ドラッグ＆ドロップのイベントリスナー
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('active');
+        });
+
+        dropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('active');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove('active');
+            const files = e.dataTransfer.files;
+            handleFile(files[0]);
+        });
+
+        // ファイル入力のイベントリスナー
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            handleFile(files[0]);
+        });
+
+        /**
+         * 選択されたファイルを処理し、変換を実行
+         * @param {File} file - ユーザーが選択したファイル
+         */
+        function handleFile(file) {
+            if (!file) return;
+
+            // 変換が始まる前にボタンとドロップダウンをリセット
+            downloadButton.style.display = 'none';
+            packFormatGroup.style.display = 'none';
+
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                const fileContent = e.target.result;
+                let conversionSuccessful = false;
+                
+                try {
+                    if (file.name === 'pack.mcmeta') {
+                        const mcmetaData = JSON.parse(fileContent);
+                        const manifestData = convertMcmetaToManifest(mcmetaData);
+                        convertedContent = JSON.stringify(manifestData, null, 4);
+                        outputFileName = 'manifest.json';
+                        conversionSuccessful = true;
+                    } else if (file.name === 'manifest.json') {
+                        const manifestData = JSON.parse(fileContent);
+                        
+                        // .jsonから.mcmetaに変換する場合、pack_format選択を表示
+                        packFormatGroup.style.display = 'block';
+
+                        // 変換を実行するボタンの代わりに、ダウンロードボタンを生成する
+                        downloadButton.textContent = `変換完了！'pack.mcmeta'をダウンロード`;
+                        downloadButton.style.display = 'block';
+                        
+                        // ユーザーがpack_formatを選択してから変換する
+                        downloadButton.onclick = () => {
+                            const selectedFormat = parseInt(packFormatSelect.value, 10);
+                            const mcmetaData = convertManifestToMcmeta(manifestData, selectedFormat);
+                            convertedContent = JSON.stringify(mcmetaData, null, 4);
+                            outputFileName = 'pack.mcmeta';
+                            
+                            // ダウンロードを実行
+                            downloadFile(convertedContent, outputFileName);
+                        };
+                        console.log("✅ 'manifest.json'の読み込みが完了しました。pack_formatを選択してダウンロードしてください。");
+                        return; // ここで処理を終了
+                    } else {
+                        alert("❌ サポートされていないファイル名です。'pack.mcmeta'または'manifest.json'を選択してください。");
+                    }
+                } catch (error) {
+                    alert(`❌ 変換エラー: ファイルの形式が正しくありません。\n詳細: ${error.message}`);
+                    console.error("変換エラー:", error);
+                }
+
+                if (conversionSuccessful) {
+                    downloadButton.textContent = `変換完了！'${outputFileName}'をダウンロード`;
+                    downloadButton.style.display = 'block';
+                    // .mcmetaから.jsonの場合は、すぐにダウンロードイベントを設定
+                    downloadButton.onclick = () => downloadFile(convertedContent, outputFileName);
+                    console.log("✅ 変換が完了しました！ダウンロードボタンが利用可能です。");
+                } else {
+                    downloadButton.style.display = 'none';
+                }
+            };
+            
+            reader.readAsText(file);
+        }
+
+        /**
+         * pack.mcmetaをmanifest.jsonに変換
+         * @param {object} mcmetaData - pack.mcmetaの内容
+         * @returns {object} manifest.json形式のオブジェクト
+         */
+        function convertMcmetaToManifest(mcmetaData) {
+            const description = mcmetaData.pack.description;
+
+            return {
+                "format_version": 2, // 統合版の一般的なバージョン
+                "header": {
+                    "name": "Converted from pack.mcmeta",
+                    "description": description,
+                    "uuid": 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                        var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                        return v.toString(16);
+                    }),
+                    "version": [1, 0, 0],
+                    "min_engine_version": [1, 20, 0]
+                },
+                "modules": [
+                    {
+                        "type": "resources",
+                        "uuid": 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                            var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                            return v.toString(16);
+                        }),
+                        "version": [1, 0, 0]
+                    }
+                ]
+            };
+        }
+
+        /**
+         * manifest.jsonをpack.mcmetaに変換
+         * @param {object} manifestData - manifest.jsonの内容
+         * @param {number} packFormat - 変換先のpack_format
+         * @returns {object} pack.mcmeta形式のオブジェクト
+         */
+        function convertManifestToMcmeta(manifestData, packFormat) {
+            const description = manifestData.header.description;
+
+            return {
+                "pack": {
+                    "pack_format": packFormat,
+                    "description": description
+                }
+            };
+        }
+
+        /**
+         * ファイルをダウンロード
+         * @param {string} content - ダウンロードするファイルの内容
+         * @param {string} fileName - ダウンロードするファイル名
+         */
+        function downloadFile(content, fileName) {
+            const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    </script>
+
+</body>
+</html>
