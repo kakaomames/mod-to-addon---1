@@ -1,1 +1,351 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft サウンド変換ツール</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f4f7f9;
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            padding: 30px;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        h1 {
+            color: #2c3e50;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+            margin-bottom: 25px;
+        }
+        .drop-zone {
+            border: 2px dashed #bdc3c7;
+            border-radius: 8px;
+            padding: 40px 20px;
+            margin-bottom: 20px;
+            transition: background-color 0.3s, border-color 0.3s;
+            cursor: pointer;
+        }
+        .drop-zone.active {
+            background-color: #ecf0f1;
+            border-color: #3498db;
+        }
+        .drop-zone p {
+            font-size: 1.2em;
+            color: #95a5a6;
+            margin: 0;
+        }
+        #fileInput {
+            display: none;
+        }
+        #soundList {
+            list-style: none;
+            padding: 0;
+            margin-top: 20px;
+            text-align: left;
+        }
+        #soundList li {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            flex-wrap: wrap;
+        }
+        #soundList li:last-child {
+            border-bottom: none;
+        }
+        #soundList li .sound-name {
+            font-family: 'Courier New', Courier, monospace;
+            flex: 1;
+            margin-right: 10px;
+            word-break: break-all;
+            color: #333;
+        }
+        #soundList li input {
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            flex: 2;
+            min-width: 200px;
+            box-sizing: border-box;
+        }
+        .button-group {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .button {
+            padding: 15px 30px;
+            font-size: 1.1em;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        .button.java-to-bedrock {
+            background-color: #3498db;
+        }
+        .button.java-to-bedrock:hover {
+            background-color: #2980b9;
+        }
+        .button.bedrock-to-java {
+            background-color: #f39c12;
+        }
+        .button.bedrock-to-java:hover {
+            background-color: #e67e22;
+        }
+        .download-button {
+            display: none;
+            width: 100%;
+            padding: 15px;
+            font-size: 1.1em;
+            color: #fff;
+            background-color: #2ecc71;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-top: 20px;
+        }
+        .download-button:hover {
+            background-color: #27ae60;
+        }
+        .error-message {
+            color: #e74c3c;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .info-message {
+            color: #3498db;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
 
+    <div class="container">
+        <h1>Minecraft サウンド変換ツール</h1>
+        <p id="mainInstruction">変換したい**sounds**フォルダを下のエリアにドラッグ＆ドロップするか、クリックして選択してください。</p>
+
+        <div id="dropZone" class="drop-zone">
+            <p>ここにフォルダまたはファイルをドロップ</p>
+            <input type="file" id="fileInput" webkitdirectory directory multiple>
+        </div>
+
+        <div id="converter" style="display: none;">
+            <p id="conversionTypeMessage" class="info-message"></p>
+            <ul id="soundList"></ul>
+            <div class="button-group">
+                <button class="button java-to-bedrock" id="javaToBedrockBtn" style="display: none;">Java → 統合版に変換</button>
+                <button class="button bedrock-to-java" id="bedrockToJavaBtn" style="display: none;">統合版 → Java版に変換</button>
+            </div>
+            <button id="downloadButton" class="download-button" style="display: none;">変換結果をダウンロード</button>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const mainInstruction = document.getElementById('mainInstruction');
+        const converter = document.getElementById('converter');
+        const soundList = document.getElementById('soundList');
+        const javaToBedrockBtn = document.getElementById('javaToBedrockBtn');
+        const bedrockToJavaBtn = document.getElementById('bedrockToJavaBtn');
+        const downloadButton = document.getElementById('downloadButton');
+        const conversionTypeMessage = document.getElementById('conversionTypeMessage');
+        
+        let allSoundFiles = [];
+        let javaSoundJson = null;
+
+        // ドロップゾーンのイベントリスナー
+        ['dragover', 'dragleave', 'drop'].forEach(event => {
+            dropZone.addEventListener(event, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (event === 'dragover') {
+                    dropZone.classList.add('active');
+                } else {
+                    dropZone.classList.remove('active');
+                }
+            });
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            handleFiles(e.dataTransfer.files);
+        });
+
+        // ファイル入力のイベントリスナー
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            allSoundFiles = [];
+            javaSoundJson = null;
+            soundList.innerHTML = '';
+            converter.style.display = 'none';
+            downloadButton.style.display = 'none';
+            javaToBedrockBtn.style.display = 'none';
+            bedrockToJavaBtn.style.display = 'none';
+            
+            let soundsFolderFound = false;
+
+            for (const file of files) {
+                if (file.webkitRelativePath) {
+                    // soundsフォルダの中のファイルか確認
+                    if (file.webkitRelativePath.includes('/sounds/')) {
+                        if (file.name.endsWith('.ogg')) {
+                            allSoundFiles.push(file);
+                            soundsFolderFound = true;
+                        }
+                    }
+                }
+            }
+
+            if (soundsFolderFound) {
+                displayFileList();
+                mainInstruction.textContent = "Java版に変換したい場合は、続いてsound.jsonファイルをドロップしてください。";
+                fileInput.removeAttribute('webkitdirectory');
+                fileInput.removeAttribute('directory');
+                fileInput.setAttribute('accept', '.json');
+            } else if (files[0] && files[0].name === 'sound.json') {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        javaSoundJson = JSON.parse(e.target.result);
+                        displayFileList();
+                    } catch (error) {
+                        alert("❌ sound.jsonの形式が正しくありません。\n" + error.message);
+                    }
+                };
+                reader.readAsText(files[0]);
+            } else {
+                 alert("❌ .oggファイルのあるsoundsフォルダまたはsound.jsonファイルが見つかりませんでした。");
+            }
+        }
+        
+        function displayFileList() {
+            if (javaSoundJson) {
+                 conversionTypeMessage.textContent = "Java版 → 統合版への変換と判別しました。";
+                javaToBedrockBtn.style.display = 'block';
+                bedrockToJavaBtn.style.display = 'none';
+
+                for (const key in javaSoundJson.sound_definitions) {
+                    const soundObj = javaSoundJson.sound_definitions[key];
+                    const soundPath = Array.isArray(soundObj.sounds) ? soundObj.sounds[0].name.replace('sounds/', '') : soundObj.sounds.replace('sounds/', '');
+                    
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <span class="sound-name">${soundPath}</span>
+                        <input type="text" placeholder="例: ${key}" data-original-path="${soundPath}" value="${key}">
+                    `;
+                    soundList.appendChild(li);
+                }
+            } else if (allSoundFiles.length > 0) {
+                conversionTypeMessage.textContent = "統合版 → Java版への変換と判別しました。";
+                javaToBedrockBtn.style.display = 'none';
+                bedrockToJavaBtn.style.display = 'block';
+                converter.style.display = 'block';
+
+                allSoundFiles.forEach(file => {
+                    const relativePath = file.webkitRelativePath.split('/').slice(1).join('/');
+                    const soundName = relativePath.replace(/\.ogg$/, '');
+
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <span class="sound-name">${soundName}.ogg</span>
+                        <input type="text" placeholder="例: ${soundName.replace(/\./g, '/')}" data-original-path="${relativePath}">
+                    `;
+                    soundList.appendChild(li);
+                });
+            } else {
+                 alert("❌ 変換に必要なファイルが見つかりませんでした。");
+            }
+
+            converter.style.display = 'block';
+            downloadButton.style.display = 'none';
+        }
+
+        javaToBedrockBtn.onclick = () => convertSounds('java');
+        bedrockToJavaBtn.onclick = () => convertSounds('bedrock');
+
+        function convertSounds(type) {
+            let outputContent = '';
+            let outputFileName = '';
+            const inputs = soundList.querySelectorAll('input');
+
+            if (type === 'java') {
+                const soundDefinitions = {
+                    format_version: "1.14.0",
+                    "sound_definitions": {}
+                };
+
+                inputs.forEach(input => {
+                    const originalPath = input.dataset.originalPath;
+                    const newName = input.value.trim() || originalPath.replace(/\//g, '.').replace(/\.ogg$/, '');
+
+                    soundDefinitions.sound_definitions[newName] = {
+                        sounds: [
+                            { name: "sounds/" + originalPath, stream: false }
+                        ]
+                    };
+                });
+                
+                outputContent = JSON.stringify(soundDefinitions, null, 4);
+                outputFileName = 'sound_definitions.json';
+            
+            } else if (type === 'bedrock') {
+                outputFileName = 'renamed_sounds_list.txt';
+                let renamedList = '--- 統合版 → Java版 サウンド変換リスト ---\n\n';
+
+                inputs.forEach(input => {
+                    const originalPath = input.dataset.originalPath;
+                    const originalName = originalPath.split('/').slice(1).join('/').replace(/\.ogg$/, '');
+                    const newName = input.value.trim() || originalName.replace(/\./g, '/');
+                    
+                    renamedList += `元のパス: sounds/${originalName}.ogg\n`
+                                + `新しいパス: sounds/${newName}.ogg\n\n`;
+                });
+                outputContent = renamedList;
+            }
+
+            downloadFile(outputContent, outputFileName);
+        }
+
+        function downloadFile(content, fileName) {
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            downloadButton.textContent = "変換結果をダウンロード";
+            downloadButton.style.display = 'none';
+        }
+    </script>
+</body>
+</html>
