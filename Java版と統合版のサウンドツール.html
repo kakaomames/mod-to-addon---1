@@ -155,6 +155,11 @@
             color: white;
             font-weight: bold;
         }
+        .additional-buttons {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -174,6 +179,9 @@
 
         <div id="converter" style="display: none;">
             <p id="conversionTypeMessage" class="info-message"></p>
+            <div class="additional-buttons">
+                <button id="clearButton" class="button" style="background-color: #e74c3c; padding: 10px 20px; font-size: 0.9em;">すべてクリア</button>
+            </div>
             <ul id="soundList"></ul>
             <div class="button-group">
                 <button class="button java-to-bedrock" id="javaToBedrockBtn" style="display: none;">Java → 統合版に変換</button>
@@ -200,6 +208,7 @@
         const javaToBedrockBtn = document.getElementById('javaToBedrockBtn');
         const bedrockToJavaBtn = document.getElementById('bedrockToJavaBtn');
         const downloadButton = document.getElementById('downloadButton');
+        const clearButton = document.getElementById('clearButton');
         const conversionTypeMessage = document.getElementById('conversionTypeMessage');
         const choiceArea = document.getElementById('choiceArea');
         const progressBarContainer = document.getElementById('progressContainer');
@@ -208,30 +217,7 @@
         let allSoundFiles = {};
         let javaSoundJson = null;
 
-        ['dragover', 'dragleave', 'drop'].forEach(event => {
-            dropZone.addEventListener(event, (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (event === 'dragover') {
-                    dropZone.classList.add('active');
-                } else {
-                    dropZone.classList.remove('active');
-                }
-            });
-        });
-
-        dropZone.addEventListener('drop', (e) => {
-            handleItems(e.dataTransfer.items);
-        });
-
-        dropZone.addEventListener('click', () => {
-            fileInput.click();
-        });
-
-        fileInput.addEventListener('change', (e) => {
-            handleFilesFromInput(e.target.files);
-        });
-
+        // 初期化とUI表示のリセット
         function resetUI() {
             allSoundFiles = {};
             javaSoundJson = null;
@@ -247,9 +233,37 @@
             mainInstruction.textContent = "変換したい**sounds**フォルダ、または**複数のファイル**（oggとsound.json）を下のエリアにドラッグ＆ドロップしてください。";
         }
 
-        async function handleItems(items) {
+        ['dragover', 'dragleave', 'drop'].forEach(event => {
+            dropZone.addEventListener(event, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (event === 'dragover') {
+                    dropZone.classList.add('active');
+                } else {
+                    dropZone.classList.remove('active');
+                }
+            });
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            handleItems(e.dataTransfer.items);
+        });
+
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFilesFromInput(e.target.files);
+        });
+
+        clearButton.addEventListener('click', () => {
             resetUI();
-            
+            alert('アップロードされたファイルがすべてクリアされました。');
+        });
+
+        async function handleItems(items) {
             const fileEntries = [];
             const walkDirectory = async (directoryEntry, path = '') => {
                 const reader = directoryEntry.createReader();
@@ -275,25 +289,24 @@
                 }
             }
             
-            await processFiles(fileEntries);
+            await processAndAddFiles(fileEntries);
         }
 
         async function handleFilesFromInput(files) {
-            resetUI();
             const fileInfo = Array.from(files).map(f => ({ file: f, path: f.webkitRelativePath || f.name }));
-            await processFiles(fileInfo);
+            await processAndAddFiles(fileInfo);
         }
         
-        async function processFiles(fileInfo) {
+        async function processAndAddFiles(fileInfo) {
             if (fileInfo.length === 0) {
-                alert("❌ .oggファイルまたはsound.jsonファイルが見つかりませんでした。");
+                alert("❌ ファイルが見つかりませんでした。");
                 return;
             }
 
             progressBarContainer.style.display = 'block';
-            let oggFound = false;
-            let jsonFile = null;
             let filesReadCount = 0;
+            let currentOggFound = false;
+            let currentJsonFile = null;
 
             for (let i = 0; i < fileInfo.length; i++) {
                 const { entry, file, path } = fileInfo[i];
@@ -301,39 +314,48 @@
                 
                 if (currentFile.name.endsWith('.ogg')) {
                     allSoundFiles[path] = currentFile;
-                    oggFound = true;
+                    currentOggFound = true;
                 } else if (currentFile.name.toLowerCase() === 'sound.json') {
-                    jsonFile = currentFile;
+                    if (javaSoundJson) {
+                         alert("⚠️ sound.jsonが既にアップロードされています。新しいファイルに上書きします。");
+                    }
+                    currentJsonFile = currentFile;
                 }
                 
                 filesReadCount++;
                 const progress = Math.min(100, Math.floor((filesReadCount / fileInfo.length) * 100));
                 progressBar.style.width = `${progress}%`;
                 progressBar.textContent = `${progress}%`;
+                await new Promise(resolve => setTimeout(resolve, 10)); // プログレスバーの動きを滑らかにする
             }
 
-            await new Promise(resolve => setTimeout(resolve, 500)); // progress barが100%になるのを見せるための遅延
+            await new Promise(resolve => setTimeout(resolve, 500)); // 100%になったことを見せるための遅延
 
-            if (!oggFound && !jsonFile) {
-                alert("❌ .oggファイルまたはsound.jsonファイルが見つかりませんでした。");
-                progressBarContainer.style.display = 'none';
-                return;
-            } else if (jsonFile) {
+            if (currentJsonFile) {
                 try {
-                    await readSoundJson(jsonFile);
-                    if (Object.keys(javaSoundJson.sound_definitions).length > 0) {
-                        displayFileList('java');
-                    } else {
-                        alert("❌ sound.jsonにサウンドの定義が見つかりませんでした。");
-                        progressBarContainer.style.display = 'none';
-                    }
+                    await readSoundJson(currentJsonFile);
                 } catch (e) {
                     progressBarContainer.style.display = 'none';
                     return;
                 }
+            }
+            
+            checkAndDisplay();
+        }
+
+        function checkAndDisplay() {
+            progressBarContainer.style.display = 'none';
+
+            const oggFound = Object.keys(allSoundFiles).length > 0;
+            const jsonFound = javaSoundJson && Object.keys(javaSoundJson.sound_definitions).length > 0;
+
+            if (oggFound && jsonFound) {
+                displayFileList('java');
             } else if (oggFound) {
                 choiceArea.style.display = 'block';
-                progressBarContainer.style.display = 'none';
+            } else {
+                 alert("❌ 読み込み可能な.oggファイルが見つかりませんでした。");
+                 resetUI(); // 変換可能なファイルがない場合はリセット
             }
         }
 
@@ -342,7 +364,11 @@
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
-                        javaSoundJson = JSON.parse(e.target.result);
+                        const newJson = JSON.parse(e.target.result);
+                        if (!newJson.sound_definitions || Object.keys(newJson.sound_definitions).length === 0) {
+                            throw new Error("sound.jsonにサウンドの定義が見つかりませんでした。");
+                        }
+                        javaSoundJson = newJson;
                         resolve();
                     } catch (error) {
                         alert("❌ sound.jsonの形式が正しくありません。\n" + error.message);
@@ -394,7 +420,7 @@
                     
                     const li = document.createElement('li');
                     li.innerHTML = `
-                        <span class="sound-path">${soundName}.ogg</span>
+                        <span class="sound-path">${path}</span>
                         <input type="text" placeholder="例: ${soundName.replace(/\./g, '/')}" data-original-path="${path}">
                     `;
                     soundList.appendChild(li);
