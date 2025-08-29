@@ -357,7 +357,7 @@
             progressBarContainer.style.display = 'none';
 
             const oggFound = Object.keys(allSoundFiles).length > 0;
-            const javaJsonFound = javaSoundJson && javaSoundJson.sounds && Object.keys(javaSoundJson.sounds).length > 0;
+            const javaJsonFound = javaSoundJson && Object.keys(javaSoundJson).length > 0;
             const bedrockJsonFound = bedrockSoundJson && bedrockSoundJson.sound_definitions && Object.keys(bedrockSoundJson.sound_definitions).length > 0;
 
             if (javaJsonFound) {
@@ -378,7 +378,7 @@
                 reader.onload = (e) => {
                     try {
                         const newJson = JSON.parse(e.target.result);
-                        if (type === 'java' && (!newJson.sounds || Object.keys(newJson.sounds).length === 0)) {
+                        if (type === 'java' && Object.keys(newJson).length === 0) {
                             throw new Error("Java版sounds.jsonにサウンドの定義が見つかりませんでした。");
                         }
                         if (type === 'bedrock' && (!newJson.sound_definitions || Object.keys(newJson.sound_definitions).length === 0)) {
@@ -413,28 +413,24 @@
                 javaToBedrockBtn.style.display = 'block';
                 bedrockToJavaBtn.style.display = 'none';
                 
-                const soundDefs = javaSoundJson.sounds;
-                const oggPaths = Object.keys(allSoundFiles);
+                const soundDefs = javaSoundJson;
                 const combinedKeys = new Set();
                 
-                if (soundDefs) {
-                    for (const key in soundDefs) {
-                        combinedKeys.add(key);
-                    }
+                for (const key in soundDefs) {
+                    combinedKeys.add(key);
                 }
-                oggPaths.forEach(path => {
-                    // Java版のsounds.jsonはパスの末尾がsounds/example.ogg形式
-                    // 統合版はパス全体がsounds/example/sound.ogg形式
-                    const normalizedPath = path.startsWith('sounds/') ? path.substring(7) : path;
-                    const soundName = normalizedPath.replace(/\.ogg$/, '');
-                    combinedKeys.add(soundName);
-                });
 
                 for (const key of combinedKeys) {
+                    const soundObj = soundDefs[key];
+                    let soundFileName = '';
+                    if (soundObj && soundObj.sounds && soundObj.sounds[0] && soundObj.sounds[0].name) {
+                       soundFileName = soundObj.sounds[0].name;
+                    }
+
                     const li = document.createElement('li');
                     li.innerHTML = `
                         <span class="sound-path">${key}.ogg</span>
-                        <input type="text" placeholder="例: ${key.replace(/\./g, '/')}" data-original-path="${key}" value="${key.replace(/\./g, '/').replace('assets/minecraft/sounds/', '')}">
+                        <input type="text" placeholder="例: ${key}" data-original-path="${soundFileName}" value="${key}">
                     `;
                     soundList.appendChild(li);
                 }
