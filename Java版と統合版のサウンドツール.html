@@ -69,12 +69,17 @@
         #soundList li:last-child {
             border-bottom: none;
         }
-        #soundList li .sound-name {
+        #soundList li .sound-path {
             font-family: 'Courier New', Courier, monospace;
             flex: 1;
             margin-right: 10px;
             word-break: break-all;
             color: #333;
+        }
+        #soundList li .sound-name-label {
+             flex: 1;
+             text-align: right;
+             margin-right: 10px;
         }
         #soundList li input {
             padding: 5px;
@@ -147,7 +152,7 @@
 
         <div id="dropZone" class="drop-zone">
             <p>ここにフォルダまたはファイルをドロップ</p>
-            <input type="file" id="fileInput" multiple>
+            <input type="file" id="fileInput" webkitdirectory directory multiple>
         </div>
 
         <div id="converter" style="display: none;">
@@ -184,7 +189,6 @@
         let allSoundFiles = {};
         let javaSoundJson = null;
 
-        // ドロップゾーンのイベントリスナー
         ['dragover', 'dragleave', 'drop'].forEach(event => {
             dropZone.addEventListener(event, (e) => {
                 e.preventDefault();
@@ -201,7 +205,6 @@
             handleItems(e.dataTransfer.items);
         });
 
-        // ファイル入力のイベントリスナー
         dropZone.addEventListener('click', () => {
             fileInput.click();
         });
@@ -224,19 +227,23 @@
 
         async function handleItems(items) {
             resetUI();
-
+            
             const filePromises = [];
             const walkDirectory = async (directoryEntry, path = '') => {
-                const reader = directoryEntry.createReader();
-                const entries = await new Promise(resolve => reader.readEntries(resolve));
-                for (const entry of entries) {
-                    const newPath = path ? path + '/' + entry.name : entry.name;
-                    if (entry.isFile) {
-                        filePromises.push(new Promise(resolve => entry.file(file => resolve({ file, path: newPath }))));
-                    } else if (entry.isDirectory) {
-                        await walkDirectory(entry, newPath);
-                    }
-                }
+                return new Promise(resolve => {
+                    const reader = directoryEntry.createReader();
+                    reader.readEntries(async entries => {
+                        for (const entry of entries) {
+                            const newPath = path ? path + '/' + entry.name : entry.name;
+                            if (entry.isFile) {
+                                filePromises.push(new Promise(resolveFile => entry.file(file => resolveFile({ file, path: newPath }))));
+                            } else if (entry.isDirectory) {
+                                await walkDirectory(entry, newPath);
+                            }
+                        }
+                        resolve();
+                    });
+                });
             };
 
             for (const item of items) {
@@ -256,23 +263,34 @@
 
         function handleFiles(files) {
             resetUI();
-            handleAllFiles(Array.from(files), Array.from(files).map(f => f.name));
+            const paths = Array.from(files).map(f => f.webkitRelativePath || f.name);
+            handleAllFiles(Array.from(files), paths);
         }
 
         async function handleAllFiles(files, paths) {
             let oggFound = false;
             let jsonFound = false;
+            let hasSoundsFolder = false;
 
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
                 const path = paths[i];
                 
+                if (path.includes('/sounds/') || path === 'sounds') {
+                     hasSoundsFolder = true;
+                }
+
                 if (file.name.endsWith('.ogg')) {
                     allSoundFiles[path] = file;
                     oggFound = true;
                 } else if (file.name === 'sound.json') {
                     jsonFound = true;
-                    await readSoundJson(file);
+                    try {
+                        await readSoundJson(file);
+                    } catch (e) {
+                        console.error(e);
+                        return;
+                    }
                 }
             }
 
@@ -281,8 +299,12 @@
                 return;
             }
 
-            if (jsonFound) {
+            if (hasSoundsFolder && jsonFound) {
                 displayFileList('java');
+            } else if (hasSoundsFolder && !jsonFound) {
+                displayFileList('bedrock');
+            } else if (jsonFound) {
+                 displayFileList('java');
             } else {
                 choiceArea.style.display = 'block';
             }
@@ -294,6 +316,9 @@
                 reader.onload = (e) => {
                     try {
                         javaSoundJson = JSON.parse(e.target.result);
+                        if (!javaSoundJson.sound_definitions || Object.keys(javaSoundJson.sound_definitions).length === 0) {
+                             throw new Error("sound.jsonにサウンドの定義が見つかりませんでした。");
+                        }
                         resolve();
                     } catch (error) {
                         alert("❌ sound.jsonの形式が正しくありません。\n" + error.message);
@@ -312,9 +337,9 @@
         function displayFileList(type) {
             converter.style.display = 'block';
             soundList.innerHTML = '';
-
+            
             if (type === 'java') {
-                conversionTypeMessage.textContent = "Java版 → 統合版への変換と判別しました。";
+                conversionTypeMessage.textContent = "Java版 → 統合版に変換します。各サウンド名の横に、コマンドで使う名前を入力してください。";
                 javaToBedrockBtn.style.display = 'block';
                 bedrockToJavaBtn.style.display = 'none';
                 
@@ -330,21 +355,22 @@
                     
                     const li = document.createElement('li');
                     li.innerHTML = `
-                        <span class="sound-name">${soundPath}</span>
+                        <span class="sound-path">${soundPath}</span>
                         <input type="text" placeholder="例: ${key}" data-original-path="${soundPath}" value="${key}">
                     `;
                     soundList.appendChild(li);
                 }
             } else if (type === 'bedrock') {
-                conversionTypeMessage.textContent = "統合版 → Java版への変換と判別しました。";
+                conversionTypeMessage.textContent = "統合版 → Java版に変換します。各サウンド名の横に、コマンドで使う名前を入力してください。";
                 javaToBedrockBtn.style.display = 'none';
                 bedrockToJavaBtn.style.display = 'block';
 
                 for (const path in allSoundFiles) {
-                    const soundName = path.replace(/\.ogg$/, '');
+                    const soundName = path.includes('/') ? path.split('/').pop().replace(/\.ogg$/, '') : path.replace(/\.ogg$/, '');
+                    
                     const li = document.createElement('li');
                     li.innerHTML = `
-                        <span class="sound-name">${soundName}.ogg</span>
+                        <span class="sound-path">${soundName}.ogg</span>
                         <input type="text" placeholder="例: ${soundName.replace(/\./g, '/')}" data-original-path="${path}">
                     `;
                     soundList.appendChild(li);
@@ -386,7 +412,7 @@
 
                 inputs.forEach(input => {
                     const originalPath = input.dataset.originalPath;
-                    const originalName = originalPath.includes('/') ? originalPath.split('/').slice(1).join('/').replace(/\.ogg$/, '') : originalPath.replace(/\.ogg$/, '');
+                    const originalName = originalPath.includes('/') ? originalPath.split('/').pop().replace(/\.ogg$/, '') : originalPath.replace(/\.ogg$/, '');
                     const newName = input.value.trim() || originalName.replace(/\./g, '/');
                     
                     renamedList += `元のパス: sounds/${originalName}.ogg\n`
