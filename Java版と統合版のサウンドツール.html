@@ -161,7 +161,7 @@
         </div>
 
         <div id="choiceArea" style="display: none;">
-            <p>アップロードされたファイルはJava版ですか？統合版ですか？</p>
+            <p class="info-message">どちらのバージョンのサウンドですか？</p>
             <div class="button-group">
                 <button class="button java-to-bedrock" onclick="handleUserChoice('java')">Java版</button>
                 <button class="button bedrock-to-java" onclick="handleUserChoice('bedrock')">統合版</button>
@@ -211,7 +211,7 @@
             handleFiles(e.target.files);
         });
 
-        function handleFiles(files) {
+        function resetUI() {
             allSoundFiles = [];
             javaSoundJson = null;
             soundList.innerHTML = '';
@@ -220,62 +220,53 @@
             javaToBedrockBtn.style.display = 'none';
             bedrockToJavaBtn.style.display = 'none';
             choiceArea.style.display = 'none';
-            
-            let hasWebkitDirectory = false;
-            let oggFilesFound = false;
-            let jsonFileFound = false;
-            let soundsFolderFound = false;
+            mainInstruction.textContent = "変換したい**sounds**フォルダ、または**oggファイル**と**sound.json**を下のエリアにドラッグ＆ドロップしてください。";
+        }
+
+        function handleFiles(files) {
+            resetUI();
+
+            let oggFilesFromFolder = [];
+            let oggFilesOnly = [];
+            let jsonFiles = [];
+            let isFolderUpload = false;
 
             for (const file of files) {
                 if (file.webkitRelativePath) {
-                    hasWebkitDirectory = true;
-                    if (file.webkitRelativePath.includes('/sounds/')) {
-                        if (file.name.endsWith('.ogg')) {
-                            allSoundFiles.push(file);
-                            oggFilesFound = true;
-                            soundsFolderFound = true;
-                        } else if (file.webkitRelativePath.endsWith('/sound.json')) {
-                            readSoundJson(file);
-                            jsonFileFound = true;
-                        }
-                    } else if (file.webkitRelativePath.includes('sounds/') && file.webkitRelativePath.endsWith('/sound.json')) {
-                        readSoundJson(file);
-                        jsonFileFound = true;
+                    isFolderUpload = true;
+                    if (file.webkitRelativePath.endsWith('.ogg')) {
+                        oggFilesFromFolder.push(file);
+                    } else if (file.webkitRelativePath.endsWith('sound.json')) {
+                        jsonFiles.push(file);
                     }
                 } else {
-                    // フォルダではなく、個々のファイルをアップロードした場合
                     if (file.name.endsWith('.ogg')) {
-                        allSoundFiles.push(file);
-                        oggFilesFound = true;
+                        oggFilesOnly.push(file);
                     } else if (file.name === 'sound.json') {
-                        readSoundJson(file);
-                        jsonFileFound = true;
+                        jsonFiles.push(file);
                     }
                 }
             }
 
-            // 非同期処理を待つ
-            setTimeout(() => {
-                if (soundsFolderFound) {
-                    // soundsフォルダがドロップされた場合
-                    if (jsonFileFound) {
-                        displayFileList('java'); // sound.jsonがあればJava版と判断
-                    } else {
-                        // sound.jsonがない場合は、Java版の変換用にsound.jsonを要求
-                        mainInstruction.textContent = "Java版に変換したい場合は、続いてsound.jsonファイルをドロップしてください。";
-                        fileInput.removeAttribute('webkitdirectory');
-                        fileInput.removeAttribute('directory');
-                        fileInput.setAttribute('accept', '.json');
-                        displayFileList('bedrock'); // sound.jsonがなければ統合版と判断
-                    }
-                } else if (oggFilesFound) {
-                    // oggファイル単体がドロップされた場合
-                    mainInstruction.textContent = "";
-                    choiceArea.style.display = 'block';
+            if (isFolderUpload) {
+                allSoundFiles = oggFilesFromFolder;
+                if (jsonFiles.length > 0) {
+                    readSoundJson(jsonFiles[0]); // Java版と判断
                 } else {
-                    alert("❌ .oggファイルが見つかりませんでした。");
+                    // soundsフォルダだがsound.jsonがない場合 -> 統合版と判断
+                    displayFileList('bedrock');
                 }
-            }, 100);
+            } else if (oggFilesOnly.length > 0) {
+                allSoundFiles = oggFilesOnly;
+                if (jsonFiles.length > 0) {
+                    readSoundJson(jsonFiles[0]); // sound.jsonがあればJava版と判断
+                } else {
+                    // oggファイルのみで判別不能 -> ユーザーに選択を促す
+                    choiceArea.style.display = 'block';
+                }
+            } else {
+                alert("❌ .oggファイルが見つかりませんでした。");
+            }
         }
 
         function readSoundJson(file) {
@@ -291,7 +282,6 @@
             reader.readAsText(file);
         }
 
-        // ユーザーの選択に応じてリストを表示
         function handleUserChoice(type) {
             choiceArea.style.display = 'none';
             displayFileList(type);
@@ -300,7 +290,7 @@
         function displayFileList(type) {
             converter.style.display = 'block';
             soundList.innerHTML = '';
-            
+
             if (type === 'java') {
                 conversionTypeMessage.textContent = "Java版 → 統合版への変換と判別しました。";
                 javaToBedrockBtn.style.display = 'block';
@@ -329,6 +319,7 @@
                 bedrockToJavaBtn.style.display = 'block';
 
                 allSoundFiles.forEach(file => {
+                    // フォルダか単一ファイルかでパスを調整
                     const relativePath = file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(1).join('/') : file.name;
                     const soundName = relativePath.replace(/\.ogg$/, '');
 
@@ -378,7 +369,8 @@
 
                 inputs.forEach(input => {
                     const originalPath = input.dataset.originalPath;
-                    const originalName = originalPath.split('/').slice(1).join('/').replace(/\.ogg$/, '');
+                    // ファイル名にフォルダ情報がなければ、そのまま使用
+                    const originalName = originalPath.includes('/') ? originalPath.split('/').slice(1).join('/').replace(/\.ogg$/, '') : originalPath.replace(/\.ogg$/, '');
                     const newName = input.value.trim() || originalName.replace(/\./g, '/');
                     
                     renamedList += `元のパス: sounds/${originalName}.ogg\n`
