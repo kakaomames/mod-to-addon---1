@@ -143,11 +143,11 @@
 
     <div class="container">
         <h1>Minecraft サウンド変換ツール</h1>
-        <p id="mainInstruction">変換したい**sounds**フォルダ、または**oggファイル**と**sound.json**を下のエリアにドラッグ＆ドロップしてください。</p>
+        <p id="mainInstruction">変換したい**sounds**フォルダ、または**複数のファイル**（oggとsound.json）を下のエリアにドラッグ＆ドロップしてください。</p>
 
         <div id="dropZone" class="drop-zone">
             <p>ここにフォルダまたはファイルをドロップ</p>
-            <input type="file" id="fileInput">
+            <input type="file" id="fileInput" multiple>
         </div>
 
         <div id="converter" style="display: none;">
@@ -167,7 +167,6 @@
                 <button class="button bedrock-to-java" onclick="handleUserChoice('bedrock')">統合版</button>
             </div>
         </div>
-
     </div>
 
     <script>
@@ -182,7 +181,7 @@
         const conversionTypeMessage = document.getElementById('conversionTypeMessage');
         const choiceArea = document.getElementById('choiceArea');
         
-        let allSoundFiles = [];
+        let allSoundFiles = {};
         let javaSoundJson = null;
 
         // ドロップゾーンのイベントリスナー
@@ -199,7 +198,7 @@
         });
 
         dropZone.addEventListener('drop', (e) => {
-            handleFiles(e.dataTransfer.files);
+            handleItems(e.dataTransfer.items);
         });
 
         // ファイル入力のイベントリスナー
@@ -212,7 +211,7 @@
         });
 
         function resetUI() {
-            allSoundFiles = [];
+            allSoundFiles = {};
             javaSoundJson = null;
             soundList.innerHTML = '';
             converter.style.display = 'none';
@@ -220,66 +219,89 @@
             javaToBedrockBtn.style.display = 'none';
             bedrockToJavaBtn.style.display = 'none';
             choiceArea.style.display = 'none';
-            mainInstruction.textContent = "変換したい**sounds**フォルダ、または**oggファイル**と**sound.json**を下のエリアにドラッグ＆ドロップしてください。";
+            mainInstruction.textContent = "変換したい**sounds**フォルダ、または**複数のファイル**（oggとsound.json）を下のエリアにドラッグ＆ドロップしてください。";
+        }
+
+        async function handleItems(items) {
+            resetUI();
+
+            const filePromises = [];
+            const walkDirectory = async (directoryEntry, path = '') => {
+                const reader = directoryEntry.createReader();
+                const entries = await new Promise(resolve => reader.readEntries(resolve));
+                for (const entry of entries) {
+                    const newPath = path ? path + '/' + entry.name : entry.name;
+                    if (entry.isFile) {
+                        filePromises.push(new Promise(resolve => entry.file(file => resolve({ file, path: newPath }))));
+                    } else if (entry.isDirectory) {
+                        await walkDirectory(entry, newPath);
+                    }
+                }
+            };
+
+            for (const item of items) {
+                const entry = item.webkitGetAsEntry();
+                if (entry) {
+                    if (entry.isFile) {
+                        filePromises.push(new Promise(resolve => entry.file(file => resolve({ file, path: entry.name }))));
+                    } else if (entry.isDirectory) {
+                        await walkDirectory(entry, entry.name);
+                    }
+                }
+            }
+
+            const files = await Promise.all(filePromises);
+            handleAllFiles(files.map(f => f.file), files.map(f => f.path));
         }
 
         function handleFiles(files) {
             resetUI();
+            handleAllFiles(Array.from(files), Array.from(files).map(f => f.name));
+        }
 
-            let oggFilesFromFolder = [];
-            let oggFilesOnly = [];
-            let jsonFiles = [];
-            let isFolderUpload = false;
+        async function handleAllFiles(files, paths) {
+            let oggFound = false;
+            let jsonFound = false;
 
-            for (const file of files) {
-                if (file.webkitRelativePath) {
-                    isFolderUpload = true;
-                    if (file.webkitRelativePath.endsWith('.ogg')) {
-                        oggFilesFromFolder.push(file);
-                    } else if (file.webkitRelativePath.endsWith('sound.json')) {
-                        jsonFiles.push(file);
-                    }
-                } else {
-                    if (file.name.endsWith('.ogg')) {
-                        oggFilesOnly.push(file);
-                    } else if (file.name === 'sound.json') {
-                        jsonFiles.push(file);
-                    }
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const path = paths[i];
+                
+                if (file.name.endsWith('.ogg')) {
+                    allSoundFiles[path] = file;
+                    oggFound = true;
+                } else if (file.name === 'sound.json') {
+                    jsonFound = true;
+                    await readSoundJson(file);
                 }
             }
 
-            if (isFolderUpload) {
-                allSoundFiles = oggFilesFromFolder;
-                if (jsonFiles.length > 0) {
-                    readSoundJson(jsonFiles[0]); // Java版と判断
-                } else {
-                    // soundsフォルダだがsound.jsonがない場合 -> 統合版と判断
-                    displayFileList('bedrock');
-                }
-            } else if (oggFilesOnly.length > 0) {
-                allSoundFiles = oggFilesOnly;
-                if (jsonFiles.length > 0) {
-                    readSoundJson(jsonFiles[0]); // sound.jsonがあればJava版と判断
-                } else {
-                    // oggファイルのみで判別不能 -> ユーザーに選択を促す
-                    choiceArea.style.display = 'block';
-                }
-            } else {
+            if (!oggFound) {
                 alert("❌ .oggファイルが見つかりませんでした。");
+                return;
+            }
+
+            if (jsonFound) {
+                displayFileList('java');
+            } else {
+                choiceArea.style.display = 'block';
             }
         }
 
         function readSoundJson(file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    javaSoundJson = JSON.parse(e.target.result);
-                    displayFileList('java');
-                } catch (error) {
-                    alert("❌ sound.jsonの形式が正しくありません。\n" + error.message);
-                }
-            };
-            reader.readAsText(file);
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        javaSoundJson = JSON.parse(e.target.result);
+                        resolve();
+                    } catch (error) {
+                        alert("❌ sound.jsonの形式が正しくありません。\n" + error.message);
+                        reject(error);
+                    }
+                };
+                reader.readAsText(file);
+            });
         }
 
         function handleUserChoice(type) {
@@ -318,21 +340,16 @@
                 javaToBedrockBtn.style.display = 'none';
                 bedrockToJavaBtn.style.display = 'block';
 
-                allSoundFiles.forEach(file => {
-                    // フォルダか単一ファイルかでパスを調整
-                    const relativePath = file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(1).join('/') : file.name;
-                    const soundName = relativePath.replace(/\.ogg$/, '');
-
+                for (const path in allSoundFiles) {
+                    const soundName = path.replace(/\.ogg$/, '');
                     const li = document.createElement('li');
                     li.innerHTML = `
                         <span class="sound-name">${soundName}.ogg</span>
-                        <input type="text" placeholder="例: ${soundName.replace(/\./g, '/')}" data-original-path="${relativePath}">
+                        <input type="text" placeholder="例: ${soundName.replace(/\./g, '/')}" data-original-path="${path}">
                     `;
                     soundList.appendChild(li);
-                });
+                }
             }
-
-            downloadButton.style.display = 'none';
         }
 
         javaToBedrockBtn.onclick = () => convertSounds('java');
@@ -369,7 +386,6 @@
 
                 inputs.forEach(input => {
                     const originalPath = input.dataset.originalPath;
-                    // ファイル名にフォルダ情報がなければ、そのまま使用
                     const originalName = originalPath.includes('/') ? originalPath.split('/').slice(1).join('/').replace(/\.ogg$/, '') : originalPath.replace(/\.ogg$/, '');
                     const newName = input.value.trim() || originalName.replace(/\./g, '/');
                     
