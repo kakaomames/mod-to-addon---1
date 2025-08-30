@@ -110,7 +110,7 @@
 
     <div class="container">
         <h1>Java版テクスチャ → 統合版変換ツール</h1>
-        <p>変換したいJava版リソースパックの*assets/minecraft*フォルダを下のエリアにドラッグ＆ドロップしてください。</p>
+        <p>変換したいJava版リソースパックの**assets/minecraft**フォルダを下のエリアにドラッグ＆ドロップしてください。</p>
 
         <div id="dropZone" class="drop-zone">
             <p>ここにフォルダをドロップ</p>
@@ -174,12 +174,14 @@
             
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
-                const relativePath = file.webkitRelativePath.replace(/^assets\/minecraft\//, '');
-                if (relativePath) {
-                    allFiles[relativePath] = file;
+                const relativePath = file.webkitRelativePath;
+                const texturesIndex = relativePath.indexOf('textures/');
+                if (texturesIndex !== -1) {
+                    const newPath = relativePath.substring(texturesIndex);
+                    allFiles[newPath] = file;
                     
                     const li = document.createElement('li');
-                    li.textContent = relativePath;
+                    li.textContent = newPath;
                     fileList.appendChild(li);
                 }
                 filesReadCount++;
@@ -209,7 +211,6 @@
                 const file = allFiles[path];
                 
                 if (path.endsWith('.png')) {
-                    // ここを修正しました！パスを二重にしないように変更
                     zip.file(path, file);
                 }
                 
@@ -222,7 +223,7 @@
                             const texturePath = path.replace('.png.mcmeta', '.png');
                             
                             const newFlipbook = {
-                                flipbook_texture: "textures/" + texturePath,
+                                flipbook_texture: texturePath,
                                 ticks_per_frame: animation.frametime || 1,
                             };
                             
@@ -240,7 +241,7 @@
             
             if (flipbookTextures.flipbook_textures.length > 0) {
                 const animationsJson = JSON.stringify(flipbookTextures, null, 4);
-                zip.file('animations/flipbook_textures.json', animationsJson);
+                zip.file('textures/flipbook_textures.json', animationsJson);
             }
 
             const blob = await zip.generateAsync({ type: "blob" });
