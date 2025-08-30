@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft テクスチャ変換ツール</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f4f7f9;
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            padding: 30px;
+            background-color: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        h1 {
+            color: #2c3e50;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+            margin-bottom: 25px;
+        }
+        .drop-zone {
+            border: 2px dashed #bdc3c7;
+            border-radius: 8px;
+            padding: 40px 20px;
+            margin-bottom: 20px;
+            transition: background-color 0.3s, border-color 0.3s;
+            cursor: pointer;
+        }
+        .drop-zone.active {
+            background-color: #ecf0f1;
+            border-color: #3498db;
+        }
+        .drop-zone p {
+            font-size: 1.2em;
+            color: #95a5a6;
+            margin: 0;
+        }
+        #fileInput {
+            display: none;
+        }
+        #fileList {
+            list-style: none;
+            padding: 0;
+            margin-top: 20px;
+            text-align: left;
+        }
+        #fileList li {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            font-family: 'Courier New', Courier, monospace;
+            word-break: break-all;
+            color: #333;
+        }
+        #fileList li:last-child {
+            border-bottom: none;
+        }
+        .button {
+            padding: 15px 30px;
+            font-size: 1.1em;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-top: 20px;
+        }
+        .button.convert {
+            background-color: #2ecc71;
+        }
+        .button.convert:hover {
+            background-color: #27ae60;
+        }
+        .progress-bar-container {
+            width: 100%;
+            background-color: #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 10px;
+            display: none;
+        }
+        .progress-bar {
+            height: 25px;
+            background-color: #3498db;
+            width: 0%;
+            transition: width 0.3s ease-in-out;
+            text-align: center;
+            line-height: 25px;
+            color: white;
+            font-weight: bold;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Java版テクスチャ → 統合版変換ツール</h1>
+        <p>変換したいJava版リソースパックの**assets/minecraft**フォルダを下のエリアにドラッグ＆ドロップしてください。</p>
+
+        <div id="dropZone" class="drop-zone">
+            <p>ここにフォルダをドロップ</p>
+            <input type="file" id="fileInput" webkitdirectory directory multiple>
+        </div>
+
+        <div id="progressContainer" class="progress-bar-container">
+            <div id="progressBar" class="progress-bar">0%</div>
+        </div>
+
+        <ul id="fileList"></ul>
+
+        <button id="convertButton" class="button convert" style="display: none;">変換してダウンロード</button>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const convertButton = document.getElementById('convertButton');
+        const progressBarContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+
+        let allFiles = {};
+
+        ['dragover', 'dragleave', 'drop'].forEach(event => {
+            dropZone.addEventListener(event, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (event === 'dragover') {
+                    dropZone.classList.add('active');
+                } else {
+                    dropZone.classList.remove('active');
+                }
+            });
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileInput.files = e.dataTransfer.files;
+            handleFiles(fileInput.files);
+        });
+
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        async function handleFiles(files) {
+            resetUI();
+            if (files.length === 0) {
+                alert("❌ ファイルが見つかりませんでした。");
+                return;
+            }
+
+            progressBarContainer.style.display = 'block';
+            let filesReadCount = 0;
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const relativePath = file.webkitRelativePath.replace(/^assets\/minecraft\//, '');
+                if (relativePath) {
+                    allFiles[relativePath] = file;
+                    
+                    const li = document.createElement('li');
+                    li.textContent = relativePath;
+                    fileList.appendChild(li);
+                }
+                filesReadCount++;
+                const progress = Math.min(100, Math.floor((filesReadCount / files.length) * 100));
+                progressBar.style.width = `${progress}%`;
+                progressBar.textContent = `${progress}%`;
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+            progressBarContainer.style.display = 'none';
+            convertButton.style.display = 'block';
+        }
+
+        convertButton.addEventListener('click', async () => {
+            await convertAndDownload();
+        });
+        
+        async function convertAndDownload() {
+            const zip = new JSZip();
+            const flipbookTextures = {
+                format_version: "1.10.0",
+                "flipbook_textures": []
+            };
+            
+            for (const path in allFiles) {
+                const file = allFiles[path];
+                
+                if (path.endsWith('.png')) {
+                    const newPath = 'textures/' + path;
+                    zip.file(newPath, file);
+                }
+                
+                if (path.endsWith('.png.mcmeta')) {
+                    try {
+                        const mcmetaContent = await file.text();
+                        const mcmetaJson = JSON.parse(mcmetaContent);
+                        const animation = mcmetaJson.animation;
+                        if (animation) {
+                            const texturePath = path.replace('.png.mcmeta', '.png');
+                            
+                            const newFlipbook = {
+                                flipbook_texture: "textures/" + texturePath,
+                                ticks_per_frame: animation.frametime || 1,
+                            };
+                            
+                            if (animation.frames) {
+                                newFlipbook.frames = animation.frames;
+                            }
+                            
+                            flipbookTextures.flipbook_textures.push(newFlipbook);
+                        }
+                    } catch (e) {
+                        console.error(`Error parsing .mcmeta file for ${path}: ${e}`);
+                    }
+                }
+            }
+            
+            if (flipbookTextures.flipbook_textures.length > 0) {
+                const animationsJson = JSON.stringify(flipbookTextures, null, 4);
+                zip.file('animations/flipbook_textures.json', animationsJson);
+            }
+
+            const blob = await zip.generateAsync({ type: "blob" });
+            saveAs(blob, 'Converted_Texture_Files.zip');
+        }
+        
+        function resetUI() {
+            allFiles = {};
+            fileList.innerHTML = '';
+            convertButton.style.display = 'none';
+            progressBarContainer.style.display = 'none';
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+        }
+        
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+    </script>
+</body>
+</html>
