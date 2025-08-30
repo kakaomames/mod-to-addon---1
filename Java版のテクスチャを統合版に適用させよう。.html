@@ -110,7 +110,7 @@
 
     <div class="container">
         <h1>Java版テクスチャ → 統合版変換ツール</h1>
-        <p>変換したいJava版リソースパックの**assets/minecraft**フォルダを下のエリアにドラッグ＆ドロップしてください。</p>
+        <p>変換したいJava版リソースパックの**assets/minecraft**フォルダ、またはその中の**textures**フォルダを下のエリアにドラッグ＆ドロップしてください。</p>
 
         <div id="dropZone" class="drop-zone">
             <p>ここにフォルダをドロップ</p>
@@ -135,6 +135,7 @@
         const progressBar = document.getElementById('progressBar');
 
         let allFiles = {};
+        const animationFiles = {};
 
         ['dragover', 'dragleave', 'drop'].forEach(event => {
             dropZone.addEventListener(event, (e) => {
@@ -178,8 +179,13 @@
                 const texturesIndex = relativePath.indexOf('textures/');
                 if (texturesIndex !== -1) {
                     const newPath = relativePath.substring(texturesIndex);
-                    allFiles[newPath] = file;
                     
+                    if (newPath.endsWith('.png.mcmeta')) {
+                        animationFiles[newPath] = file;
+                    } else if (newPath.endsWith('.png')) {
+                        allFiles[newPath] = file;
+                    }
+
                     const li = document.createElement('li');
                     li.textContent = newPath;
                     fileList.appendChild(li);
@@ -193,7 +199,12 @@
 
             await new Promise(resolve => setTimeout(resolve, 500));
             progressBarContainer.style.display = 'none';
-            convertButton.style.display = 'block';
+            if (Object.keys(allFiles).length > 0 || Object.keys(animationFiles).length > 0) {
+                convertButton.style.display = 'block';
+            } else {
+                alert("❌ 'textures'フォルダが見つかりませんでした。正しいフォルダをドロップしてください。");
+                resetUI();
+            }
         }
 
         convertButton.addEventListener('click', async () => {
@@ -207,41 +218,42 @@
                 "flipbook_textures": []
             };
             
+            // Add all PNG files to the zip
             for (const path in allFiles) {
                 const file = allFiles[path];
-                
-                if (path.endsWith('.png')) {
-                    zip.file(path, file);
-                }
-                
-                if (path.endsWith('.png.mcmeta')) {
-                    try {
-                        const mcmetaContent = await file.text();
-                        const mcmetaJson = JSON.parse(mcmetaContent);
-                        const animation = mcmetaJson.animation;
-                        if (animation) {
-                            const texturePath = path.replace('.png.mcmeta', '.png');
-                            
-                            const newFlipbook = {
-                                flipbook_texture: texturePath,
-                                ticks_per_frame: animation.frametime || 1,
-                            };
-                            
-                            if (animation.frames) {
-                                newFlipbook.frames = animation.frames;
-                            }
-                            
-                            flipbookTextures.flipbook_textures.push(newFlipbook);
+                zip.file(path, file);
+            }
+            
+            // Process and add animation info to the flipbook json
+            for (const path in animationFiles) {
+                const file = animationFiles[path];
+                try {
+                    const mcmetaContent = await file.text();
+                    const mcmetaJson = JSON.parse(mcmetaContent);
+                    const animation = mcmetaJson.animation;
+                    if (animation) {
+                        const texturePath = path.replace('.mcmeta', '');
+                        
+                        const newFlipbook = {
+                            flipbook_texture: texturePath,
+                            ticks_per_frame: animation.frametime || 1,
+                        };
+                        
+                        if (animation.frames) {
+                            newFlipbook.frames = animation.frames;
                         }
-                    } catch (e) {
-                        console.error(`Error parsing .mcmeta file for ${path}: ${e}`);
+                        
+                        flipbookTextures.flipbook_textures.push(newFlipbook);
                     }
+                } catch (e) {
+                    console.error(`Error parsing .mcmeta file for ${path}: ${e}`);
                 }
             }
             
+            // Add the flipbook_textures.json file to the zip if there are animations
             if (flipbookTextures.flipbook_textures.length > 0) {
                 const animationsJson = JSON.stringify(flipbookTextures, null, 4);
-                zip.file('textures/flipbook_textures.json', animationsJson);
+                zip.file('animations/flipbook_textures.json', animationsJson);
             }
 
             const blob = await zip.generateAsync({ type: "blob" });
@@ -250,18 +262,12 @@
         
         function resetUI() {
             allFiles = {};
+            animationFiles = {};
             fileList.innerHTML = '';
             convertButton.style.display = 'none';
             progressBarContainer.style.display = 'none';
             progressBar.style.width = '0%';
             progressBar.textContent = '0%';
-        }
-        
-        function generateUUID() {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16);
-            });
         }
     </script>
 </body>
