@@ -209,8 +209,8 @@
                 const file = allFiles[path];
                 
                 if (path.endsWith('.png')) {
-                    const newPath = 'textures/' + path;
-                    zip.file(newPath, file);
+                    // ここを修正しました！パスを二重にしないように変更
+                    zip.file(path, file);
                 }
                 
                 if (path.endsWith('.png.mcmeta')) {
